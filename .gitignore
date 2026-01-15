@@ -1,0 +1,10 @@
+# Security: Ignore API keys
+.env
+
+# Python: Ignore virtual environment and cache
+venv/
+__pycache__/
+*.pyc
+
+# IDE: Ignore VS Code settings
+.vscode/
