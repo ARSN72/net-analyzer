@@ -16,9 +16,18 @@ class ServiceInfo(BaseModel):
     state: str
     version: Optional[str] = None
 
+# Active scan only (used internally before adding intelligence)
+class ActiveScanResult(BaseModel):
+    ip: str
+    hostname: Optional[str] = None
+    os_detected: Optional[str] = None
+    services: List[ServiceInfo]
+    open_ports_count: int
+
 # 2. Shodan Intelligence Info (NEW)
 class IntelInfo(BaseModel):
     status: str
+    resolved_ip: Optional[str] = None
     isp: Optional[str] = None
     org: Optional[str] = None
     country: Optional[str] = None
@@ -36,3 +45,11 @@ class ScanResult(BaseModel):
     open_ports_count: int
     # Passive Intel Data (NEW)
     intelligence: IntelInfo
+    # Risk Analysis (NEW)
+    risk: Optional["RiskAssessment"] = None
+
+# 4. Risk Assessment (NEW)
+class RiskAssessment(BaseModel):
+    score: float
+    label: str
+    findings: List[str] = []

@@ -1,12 +1,12 @@
 import nmap
-from app.models.schemas import ScanResult, ServiceInfo
+from app.models.schemas import ActiveScanResult, ServiceInfo
 
 class NmapScanner:
     def __init__(self):
         # Initialize the Nmap PortScanner
         self.nm = nmap.PortScanner()
 
-    def scan(self, target: str, scan_type: str = "quick") -> ScanResult:
+    def scan(self, target: str, scan_type: str = "quick") -> ActiveScanResult:
         """
         Executes the Nmap scan and parses the result.
         """
@@ -49,8 +49,8 @@ class NmapScanner:
                     )
                     parsed_services.append(s_info)
 
-            # Construct the final result
-            return ScanResult(
+            # Construct the final result (active scan only)
+            return ActiveScanResult(
                 ip=target,
                 hostname=host_data.hostname(),
                 services=parsed_services,

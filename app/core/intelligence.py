@@ -1,5 +1,7 @@
-import shodan
 import os
+import socket
+import ipaddress
+import shodan
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -12,17 +14,32 @@ class ShodanIntel:
             raise ValueError("No Shodan API Key found in .env file")
         self.api = shodan.Shodan(self.api_key)
 
-    def get_ip_data(self, ip: str):
+    def get_ip_data(self, target: str):
         """
         Fetches public intelligence for a given IP.
         """
-        print(f"[*] Fetching Shodan data for {ip}...")
+        resolved_ip = self._resolve_target(target)
+        if not resolved_ip:
+            return {
+                "status": "error",
+                "message": "Unable to resolve target hostname/IP."
+            }
+
+        if not self._is_public_ip(resolved_ip):
+            return {
+                "status": "error",
+                "message": "Target is not a public IP. Shodan only tracks public hosts.",
+                "resolved_ip": resolved_ip
+            }
+
+        print(f"[*] Fetching Shodan data for {resolved_ip}...")
         try:
             # The 'host' method returns all available data
-            host_data = self.api.host(ip)
+            host_data = self.api.host(resolved_ip)
             
             return {
                 "status": "found",
+                "resolved_ip": resolved_ip,
                 "isp": host_data.get('isp', 'Unknown'),
                 "org": host_data.get('org', 'Unknown'),
                 "country": host_data.get('country_name', 'Unknown'),
@@ -38,3 +55,21 @@ class ShodanIntel:
                 "status": "error",
                 "message": "IP not found in public database (might be private/local)."
             }
+
+    def _resolve_target(self, target: str) -> str:
+        """Return an IP string from a raw IP or hostname."""
+        try:
+            # Already an IP
+            ipaddress.ip_address(target)
+            return target
+        except ValueError:
+            # Not an IP, attempt DNS resolution
+            try:
+                return socket.gethostbyname(target)
+            except socket.gaierror:
+                return None
+
+    def _is_public_ip(self, ip_str: str) -> bool:
+        """Check if IP is public (not private/reserved/loopback)."""
+        ip_obj = ipaddress.ip_address(ip_str)
+        return not (ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_reserved)
