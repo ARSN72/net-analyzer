@@ -35,7 +35,13 @@ class IntelInfo(BaseModel):
     vulns: Optional[List[str]] = []
     message: Optional[str] = None
 
-# 3. Combined Result
+# 3. Risk Assessment (NEW)
+class RiskAssessment(BaseModel):
+    score: float
+    label: str
+    findings: List[str] = []
+
+# 4. Combined Result
 class ScanResult(BaseModel):
     ip: str
     hostname: Optional[str] = None
@@ -46,10 +52,12 @@ class ScanResult(BaseModel):
     # Passive Intel Data (NEW)
     intelligence: IntelInfo
     # Risk Analysis (NEW)
-    risk: Optional["RiskAssessment"] = None
+    risk: Optional[RiskAssessment] = None
 
-# 4. Risk Assessment (NEW)
-class RiskAssessment(BaseModel):
-    score: float
-    label: str
-    findings: List[str] = []
+# 5. History item (DB summaries)
+class ScanHistoryItem(BaseModel):
+    id: int
+    target_ip: str
+    timestamp: str
+    risk_score: Optional[float] = None
+    risk_level: Optional[str] = None
