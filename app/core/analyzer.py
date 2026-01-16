@@ -1,5 +1,6 @@
 from typing import List, Iterable, Dict, Any
 from app.models.schemas import ActiveScanResult, RiskAssessment, ServiceInfo
+from app.core.exploit_checker import ExploitChecker
 
 
 class RiskAnalyzer:
@@ -19,9 +20,13 @@ class RiskAnalyzer:
         22: ("SSH exposed (port 22)", 1.0),
     }
 
+    def __init__(self):
+        self.exploit_checker = ExploitChecker()
+
     def calculate_risk(self, nmap_data: ActiveScanResult, shodan_data: Dict[str, Any]) -> RiskAssessment:
         score = 0.0
         findings: List[str] = []
+        has_active_exploit = False
 
         local_ports = [svc.port for svc in nmap_data.services] if nmap_data and nmap_data.services else []
 
@@ -59,6 +64,10 @@ class RiskAnalyzer:
         for cve in vulns:
             score += 1.5
             findings.append(f"CVE detected ({cve}): +1.5")
+            if self.exploit_checker.check_cve(cve):
+                score += 5.0
+                has_active_exploit = True
+                findings.append(f"⚠️ ACTIVE RANSOMWARE THREAT: {cve} is in CISA KEV list (+5.0)")
 
         # 5) Clamp score and assign label
         score = max(0.0, min(10.0, round(score, 2)))
@@ -67,7 +76,7 @@ class RiskAnalyzer:
         if not findings:
             findings.append("No significant risks detected based on current data.")
 
-        return RiskAssessment(score=score, label=label, findings=findings)
+        return RiskAssessment(score=score, label=label, findings=findings, has_active_exploit=has_active_exploit)
 
     def _label_for_score(self, score: float) -> str:
         if score >= 9.0:

@@ -40,9 +40,11 @@ class RiskAssessment(BaseModel):
     score: float
     label: str
     findings: List[str] = []
+    has_active_exploit: bool = False
 
 # 4. Combined Result
 class ScanResult(BaseModel):
+    id: Optional[int] = None
     ip: str
     hostname: Optional[str] = None
     os_detected: Optional[str] = None

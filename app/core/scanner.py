@@ -1,4 +1,5 @@
 import nmap
+import socket
 from app.models.schemas import ActiveScanResult, ServiceInfo
 
 class NmapScanner:
@@ -11,26 +12,33 @@ class NmapScanner:
         Executes the Nmap scan and parses the result.
         """
         print(f"[*] Starting {scan_type} scan on {target}...")
-        
-        # Define Nmap arguments based on scan type
+
+        # 1) Resolve hostname to IP early
+        try:
+            resolved_ip = socket.gethostbyname(target)
+            print(f"[*] Resolved {target} to {resolved_ip}")
+        except socket.gaierror:
+            raise Exception(f"DNS Error: Could not resolve {target}")
+
+        # 2) Define Nmap arguments based on scan type, forcing host up (-Pn)
         if scan_type == "quick":
             # -T4: Aggressive timing (faster)
             # -F: Fast mode (scans fewer ports)
-            args = "-T4 -F"
+            args = "-T4 -F -Pn"
         else:
             # -sV: Service Version Detection
             # -sC: Default scripts
-            args = "-T4 -sV -sC"
+            args = "-T4 -sV -sC -Pn"
 
         try:
             # Perform the scan
-            self.nm.scan(hosts=target, arguments=args)
+            self.nm.scan(hosts=resolved_ip, arguments=args)
             
             # If target not found (down or blocked)
-            if target not in self.nm.all_hosts():
+            if resolved_ip not in self.nm.all_hosts():
                 raise Exception("Host is down or unreachable.")
 
-            host_data = self.nm[target]
+            host_data = self.nm[resolved_ip]
             parsed_services = []
 
             # Loop through protocols (tcp/udp)

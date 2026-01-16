@@ -64,10 +64,21 @@ class PDFGenerator:
         y -= 18
         score = risk.get("score", 0)
         level = (risk.get("label") or "UNKNOWN").upper()
+        kev_flag = bool(risk.get("has_active_exploit"))
         c.setFont("Helvetica-Bold", 22)
         c.setFillColor(self._risk_color(level))
         c.drawString(50, y, f"RISK LEVEL: {level}   SCORE: {score}")
         c.setFillColor(colors.white)
+
+        if kev_flag:
+            y -= 28
+            c.setFillColor(colors.HexColor("#2a0f0f"))
+            c.roundRect(48, y, width - 96, 40, 6, stroke=0, fill=1)
+            c.setFillColor(colors.HexColor("#ff4040"))
+            c.setFont("Helvetica-Bold", 12)
+            c.drawString(60, y + 24, "Action Required: Vulnerabilities with known active exploits detected (CISA KEV).")
+            c.setFillColor(colors.white)
+            c.setFont("Helvetica", 10)
 
         # Ports table
         y -= 40

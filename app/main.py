@@ -71,7 +71,11 @@ def perform_scan(request: ScanRequest, db=Depends(get_db)):
         db.add(record)
         db.commit()
         db.refresh(record)
-
+        # assign id back to response and update stored JSON with id included
+        final_result.id = record.id
+        record.scan_data = json.dumps(final_result.model_dump(), default=str)
+        db.add(record)
+        db.commit()
         return final_result
 
     except Exception as e:
@@ -267,6 +271,11 @@ def terminal_ui():
         .risk-medium { background: rgba(255, 189, 46, 0.12); color: #ffbd2e; }
         .risk-high { background: rgba(255, 107, 107, 0.12); color: #ff6b6b; }
         .risk-critical { background: rgba(255, 64, 64, 0.18); color: #ff4040; }
+        .risk-critical-flash { animation: flash 0.8s ease-in-out infinite alternate; }
+        @keyframes flash {
+          from { box-shadow: 0 0 0px rgba(255,64,64,0.2); }
+          to { box-shadow: 0 0 18px rgba(255,64,64,0.45); }
+        }
         .table {
           display: grid;
           grid-template-columns: 80px 80px 1fr 1fr;
@@ -343,7 +352,7 @@ def terminal_ui():
         const runBtn = document.getElementById('run');
         const clearBtn = document.getElementById('clear');
         const downloadBtn = document.getElementById('download');
-        let lastResult = null;
+        let currentScanId = null;
 
         async function runScan() {
           const target = targetEl.value.trim();
@@ -369,8 +378,8 @@ def terminal_ui():
               throw new Error(data.detail || 'Scan failed');
             }
             statusEl.textContent = 'scan complete.';
-            lastResult = data;
-            downloadBtn.disabled = false;
+            currentScanId = data.id || null;
+            downloadBtn.disabled = !currentScanId;
             appendLog(renderScanResult(data));
           } catch (err) {
             statusEl.textContent = 'error encountered.';
@@ -389,11 +398,16 @@ def terminal_ui():
 
         function renderScanResult(data) {
           const risk = data.risk || {};
+          const kevFlag = !!risk.has_active_exploit;
           const riskLabel = (risk.label || 'LOW').toUpperCase();
+          const displayLabel = kevFlag ? `${riskLabel} (KEV)` : riskLabel;
           const riskScore = risk.score != null ? Number(risk.score).toFixed(2) : '0.00';
-          const riskClass = riskLabel === 'CRITICAL' ? 'risk-critical' :
-                            riskLabel === 'HIGH' ? 'risk-high' :
-                            riskLabel === 'MEDIUM' ? 'risk-medium' : 'risk-low';
+          let riskClass = riskLabel === 'CRITICAL' ? 'risk-critical' :
+                          riskLabel === 'HIGH' ? 'risk-high' :
+                          riskLabel === 'MEDIUM' ? 'risk-medium' : 'risk-low';
+          if (kevFlag) {
+            riskClass = `${riskClass} risk-critical-flash`;
+          }
 
           const services = Array.isArray(data.services) ? data.services : [];
           const intel = data.intelligence || {};
@@ -426,7 +440,8 @@ def terminal_ui():
               <div class="muted">target: ${data.ip || ''} ${data.hostname ? `(${data.hostname})` : ''}</div>
               <div class="muted">timestamp: ${new Date().toLocaleString()}</div>
               <div style="margin:8px 0;">
-                <span class="risk-chip ${riskClass}">risk ${riskScore} :: ${riskLabel}</span>
+                <span class="risk-chip ${riskClass}">risk ${riskScore} :: ${displayLabel}</span>
+                ${kevFlag ? '<div class="muted" style="margin-top:4px;">⚠️ Active exploits present (CISA KEV)</div>' : ''}
               </div>
               <div>
                 <div class="muted">ports/services</div>
@@ -460,21 +475,13 @@ def terminal_ui():
 
         clearBtn.addEventListener('click', () => {
           logEl.innerHTML = 'awaiting command...';
-          lastResult = null;
+          currentScanId = null;
           downloadBtn.disabled = true;
         });
 
         downloadBtn.addEventListener('click', () => {
-          if (!lastResult) return;
-          const blob = new Blob([JSON.stringify(lastResult, null, 2)], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `scan-report-${lastResult.ip || 'target'}.json`;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
+          if (!currentScanId) return;
+          window.location.href = `/report/${currentScanId}`;
         });
       </script>
     </body>
