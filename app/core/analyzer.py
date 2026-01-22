@@ -67,7 +67,7 @@ class RiskAnalyzer:
             if self.exploit_checker.check_cve(cve):
                 score += 5.0
                 has_active_exploit = True
-                findings.append(f"⚠️ ACTIVE RANSOMWARE THREAT: {cve} is in CISA KEV list (+5.0)")
+                findings.append(f"ACTIVE RANSOMWARE THREAT: {cve} is in CISA KEV list (+5.0)")
 
         # 5) Clamp score and assign label
         score = max(0.0, min(10.0, round(score, 2)))

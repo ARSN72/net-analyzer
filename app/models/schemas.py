@@ -5,6 +5,8 @@ from typing import List, Optional
 class ScanRequest(BaseModel):
     target: str
     scan_type: str = "quick"
+class LocalScanRequest(BaseModel):
+    target: str | None = None  # CIDR or subnet, optional; auto-detect if absent
 
 # --- Output Schemas ---
 
@@ -42,7 +44,25 @@ class RiskAssessment(BaseModel):
     findings: List[str] = []
     has_active_exploit: bool = False
 
-# 4. Combined Result
+# 4. Internal scan models
+class LocalPort(BaseModel):
+    port: int
+    protocol: str
+    service: Optional[str] = ""
+    version: Optional[str] = ""
+
+class LocalDevice(BaseModel):
+    ip: str
+    mac: Optional[str] = None
+    vendor: Optional[str] = None
+    hostname: Optional[str] = None
+    ports: List[LocalPort] = []
+    device_type: str = "Unknown"
+    risk: RiskAssessment
+    risk_reasons: List[str] = []
+    rogue: bool = False
+
+# 5. Combined Result
 class ScanResult(BaseModel):
     id: Optional[int] = None
     ip: str

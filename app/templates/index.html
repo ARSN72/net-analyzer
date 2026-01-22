@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Intelligent Network Analyzer :: C2 Dashboard</title>
+  <style>
+    :root {
+      --bg: #0b0e11;
+      --panel: #0f141a;
+      --border: #1f2730;
+      --text: #e8f0ff;
+      --muted: #6b7683;
+      --accent: #3cffc7;
+      --danger: #ff6b6b;
+      --blue: #4da3ff;
+      --amber: #ffbd2e;
+      --purple: #c792ea;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at 20% 20%, #10151c 0, #0b0e11 40%),
+                  radial-gradient(circle at 80% 0%, #0f1723 0, #0b0e11 35%),
+                  #0b0e11;
+      color: var(--text);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      padding: 16px;
+    }
+    .nav {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .nav button {
+      background: #0c1117;
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 10px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .nav button.active {
+      border-color: var(--accent);
+      box-shadow: 0 0 12px rgba(60, 255, 199, 0.25);
+    }
+    .workspace {
+      display: none;
+    }
+    .workspace.active { display: block; }
+
+    /* External (offensive) */
+    .terminal {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 15px 45px rgba(0, 0, 0, 0.45);
+      overflow: hidden;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .title-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 14px;
+      background: #0c1117;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+      color: var(--muted);
+    }
+    .dot { width: 12px; height: 12px; border-radius: 50%; }
+    .dot.red { background: #ff5f56; }
+    .dot.amber { background: #ffbd2e; }
+    .dot.green { background: #27c93f; }
+    .content { padding: 18px; display: grid; gap: 12px; }
+    .prompt-line {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 12px 14px;
+      background: #0c1117;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    label { color: var(--muted); font-size: 13px; }
+    input, select {
+      width: 100%;
+      background: #0b0f14;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px;
+      font-family: inherit;
+      font-size: 14px;
+    }
+    button {
+      background: var(--accent);
+      color: #04100c;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 6px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.08s ease, box-shadow 0.08s ease;
+    }
+    button:hover { transform: translateY(-1px); box-shadow: 0 8px 16px rgba(60, 255, 199, 0.2); }
+    button:active { transform: translateY(0); box-shadow: none; }
+    .btn-ghost {
+      background: #0c1117;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover { box-shadow: 0 8px 16px rgba(255, 255, 255, 0.08); }
+    .btn-ghost:disabled, button:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; transform: none; }
+    .toolbar { display: flex; gap: 10px; justify-content: flex-end; align-items: center; }
+    .status { color: var(--muted); font-size: 12px; }
+    .divider { height: 1px; background: var(--border); margin: 6px 0; }
+    .log {
+      background: #05070b;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      min-height: 300px;
+      white-space: pre-wrap;
+      font-size: 13px;
+      line-height: 1.45;
+      overflow-y: auto;
+    }
+    .result-block { border-left: 2px solid var(--border); padding-left: 12px; margin-bottom: 12px; }
+    .risk-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+    .risk-low { background: rgba(60, 255, 199, 0.12); color: #3cffc7; }
+    .risk-medium { background: rgba(255, 189, 46, 0.12); color: #ffbd2e; }
+    .risk-high { background: rgba(255, 107, 107, 0.12); color: #ff6b6b; }
+    .risk-critical { background: rgba(255, 64, 64, 0.18); color: #ff4040; }
+    .risk-critical-flash { animation: flash 0.8s ease-in-out infinite alternate; }
+    @keyframes flash { from { box-shadow: 0 0 0px rgba(255,64,64,0.2); } to { box-shadow: 0 0 18px rgba(255,64,64,0.45); } }
+    .table { display: grid; grid-template-columns: 80px 80px 1fr 1fr; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-top: 8px; }
+    .table-header, .table-row { display: contents; }
+    .table-cell { padding: 8px 10px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); font-size: 13px; }
+    .table-cell:last-child { border-right: none; }
+    .table-header .table-cell { background: #0c1117; font-weight: 700; color: var(--muted); }
+    .table-row:last-child .table-cell { border-bottom: none; }
+    .pill { display: inline-block; padding: 4px 8px; border-radius: 12px; background: #0c1117; border: 1px solid var(--border); font-size: 12px; color: var(--text); }
+    .list { margin: 6px 0 0 0; padding-left: 18px; color: var(--text); }
+    .list li { margin: 4px 0; }
+    .muted { color: var(--muted); }
+    .danger { color: var(--danger); }
+
+    /* Internal (defensive) */
+    .noc-panel {
+      background: #0b0f18;
+      border: 1px solid #152032;
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 12px 30px rgba(0,0,0,0.35);
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .noc-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .noc-title { color: var(--blue); font-weight: 800; letter-spacing: 0.5px; }
+    .noc-form { display: flex; gap: 10px; flex-wrap: wrap; }
+    .noc-form input { flex: 1 1 240px; background: #0c121c; color: var(--text); border: 1px solid #1e2a3a; padding: 10px; border-radius: 8px; }
+    .noc-form button { background: var(--blue); color: #04101c; }
+    .grid {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      font-size: 13px;
+    }
+    .grid th, .grid td {
+      border: 1px solid #1e2a3a;
+      padding: 8px 10px;
+      text-align: left;
+    }
+    .grid th { background: #0f1726; color: var(--muted); }
+    .grid tr:nth-child(even) { background: #0c121c; }
+    .grid tr.high-risk { background: rgba(255,64,64,0.1); }
+    .badge { padding: 4px 8px; border-radius: 10px; font-size: 12px; border: 1px solid #1e2a3a; display: inline-block; }
+    .badge-iot { background: rgba(199,146,234,0.15); color: var(--purple); border-color: var(--purple); }
+    .badge-safe { color: #3cffc7; border-color: #3cffc7; }
+    .badge-risk { color: #ff6b6b; border-color: #ff6b6b; }
+    .tag { background: #0c1117; color: var(--amber); padding: 3px 6px; border-radius: 6px; margin-right: 4px; border: 1px solid #1f2730; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <button id="btnExternal" class="active">EXTERNAL RECON</button>
+    <button id="btnInternal">INTERNAL DEFENSE</button>
+  </div>
+
+  <!-- External Workspace -->
+  <div id="workspaceExternal" class="workspace active">
+    <div class="terminal">
+      <div class="title-bar">
+        <div class="dot red"></div><div class="dot amber"></div><div class="dot green"></div>
+        <span>external recon :: terminal</span>
+      </div>
+      <div class="content">
+        <div class="prompt-line">
+          <label for="target">target</label>
+          <input id="target" type="text" placeholder="e.g. 8.8.8.8 or example.com" />
+          <label for="scan_type">scan</label>
+          <select id="scan_type">
+            <option value="quick">quick</option>
+            <option value="full">full</option>
+          </select>
+          <button id="run">run</button>
+        </div>
+        <div class="toolbar">
+          <button id="clear" class="btn-ghost">clear logs</button>
+          <button id="download" class="btn-ghost" disabled>download report</button>
+        </div>
+        <div class="status" id="status">ready. enter a target and press run.</div>
+        <div class="divider"></div>
+        <div class="log" id="log">awaiting command...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Internal Workspace -->
+  <div id="workspaceInternal" class="workspace">
+    <div class="noc-panel">
+      <div class="noc-header">
+        <div class="noc-title">INTERNAL NETWORK SCAN (AUTHORIZED NETWORKS ONLY)</div>
+        <div class="tag">LAN Surveyor</div>
+      </div>
+      <div class="noc-form">
+        <button id="scanSubnet">SCAN LOCAL NETWORK</button>
+        <div id="detectStatus" class="muted"></div>
+      </div>
+      <table class="grid" id="assetTable">
+        <thead>
+          <tr>
+            <th>IP</th>
+            <th>MAC</th>
+            <th>Vendor</th>
+            <th>Device Type</th>
+            <th>Ports</th>
+            <th>Risk</th>
+            <th>Flags</th>
+          </tr>
+        </thead>
+        <tbody id="assetBody">
+          <tr><td colspan="6" class="muted">Awaiting LAN scan...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    // Workspace switching
+    const btnExternal = document.getElementById('btnExternal');
+    const btnInternal = document.getElementById('btnInternal');
+    const wsExternal = document.getElementById('workspaceExternal');
+    const wsInternal = document.getElementById('workspaceInternal');
+    function setWorkspace(mode) {
+      const isExt = mode === 'external';
+      wsExternal.classList.toggle('active', isExt);
+      wsInternal.classList.toggle('active', !isExt);
+      btnExternal.classList.toggle('active', isExt);
+      btnInternal.classList.toggle('active', !isExt);
+    }
+    btnExternal.addEventListener('click', () => setWorkspace('external'));
+    btnInternal.addEventListener('click', () => setWorkspace('internal'));
+
+    // External recon logic
+    const targetEl = document.getElementById('target');
+    const scanEl = document.getElementById('scan_type');
+    const statusEl = document.getElementById('status');
+    const logEl = document.getElementById('log');
+    const runBtn = document.getElementById('run');
+    const clearBtn = document.getElementById('clear');
+    const downloadBtn = document.getElementById('download');
+    let currentScanId = null;
+
+    async function runScan() {
+      const target = targetEl.value.trim();
+      const scan_type = scanEl.value;
+      if (!target) {
+        statusEl.textContent = 'missing target.';
+        statusEl.classList.add('danger');
+        return;
+      }
+      statusEl.classList.remove('danger');
+      statusEl.textContent = 'running scan...';
+      runBtn.disabled = true;
+      downloadBtn.disabled = true;
+      appendLog(`$ net-analyzer --target ${target} --scan ${scan_type}`);
+      try {
+        const res = await fetch('/scan/external', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target, scan_type })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.detail || 'Scan failed');
+        }
+        statusEl.textContent = 'scan complete.';
+        currentScanId = data.id || null;
+        downloadBtn.disabled = !currentScanId;
+        appendLog(renderScanResult(data));
+      } catch (err) {
+        statusEl.textContent = 'error encountered.';
+        statusEl.classList.add('danger');
+        appendLog(`! error: ${err.message}`);
+      } finally {
+        runBtn.disabled = false;
+      }
+    }
+
+    function appendLog(text) {
+      const ts = new Date().toLocaleTimeString();
+      const block = `<div class="result-block">[${ts}] ${text}</div>`;
+      logEl.innerHTML = `${block}${logEl.innerHTML === 'awaiting command...' ? '' : '<br/>' + logEl.innerHTML}`;
+    }
+
+    function renderScanResult(data) {
+      const risk = data.risk || {};
+      const kevFlag = !!risk.has_active_exploit;
+      const riskLabel = (risk.label || 'LOW').toUpperCase();
+      const displayLabel = kevFlag ? `${riskLabel} (KEV)` : riskLabel;
+      const riskScore = risk.score != null ? Number(risk.score).toFixed(2) : '0.00';
+      let riskClass = riskLabel === 'CRITICAL' ? 'risk-critical' :
+                      riskLabel === 'HIGH' ? 'risk-high' :
+                      riskLabel === 'MEDIUM' ? 'risk-medium' : 'risk-low';
+      if (kevFlag) { riskClass = `${riskClass} risk-critical-flash`; }
+
+      const services = Array.isArray(data.services) ? data.services : [];
+      const intel = data.intelligence || {};
+      const findings = Array.isArray(risk.findings) ? risk.findings : [];
+
+      const portRows = services.map(s => `
+        <div class="table-row">
+          <div class="table-cell">${s.port}</div>
+          <div class="table-cell">${s.protocol || ''}</div>
+          <div class="table-cell">${s.service_name || ''}</div>
+          <div class="table-cell">${s.version || ''}</div>
+        </div>
+      `).join('') || `
+        <div class="table-row">
+          <div class="table-cell" style="grid-column: 1 / span 4;">No open ports</div>
+        </div>`;
+
+      const vulnList = Array.isArray(intel.vulns) && intel.vulns.length
+        ? intel.vulns.map(v => `<span class="pill danger">${v}</span>`).join(' ')
+        : '<span class="muted">No CVEs reported</span>';
+
+      const findingsList = findings.length
+        ? `<ul class="list">${findings.map(f => `<li>${f}</li>`).join('')}</ul>`
+        : '<span class="muted">No notable findings.</span>';
+
+      return `
+        <div>
+          <div class="muted">target: ${data.ip || ''} ${data.hostname ? `(${data.hostname})` : ''}</div>
+          <div class="muted">timestamp: ${new Date().toLocaleString()}</div>
+          <div style="margin:8px 0;">
+            <span class="risk-chip ${riskClass}">risk ${riskScore} :: ${displayLabel}</span>
+            ${kevFlag ? '<div class="muted" style="margin-top:4px;">Active exploits present (CISA KEV)</div>' : ''}
+          </div>
+          <div>
+            <div class="muted">ports/services</div>
+            <div class="table">
+              <div class="table-header">
+                <div class="table-cell">Port</div>
+                <div class="table-cell">Proto</div>
+                <div class="table-cell">Service</div>
+                <div class="table-cell">Version</div>
+              </div>
+              ${portRows}
+            </div>
+          </div>
+          <div style="margin-top:8px;">
+            <div class="muted">intelligence</div>
+            <div>ISP: ${intel.isp || 'Unknown'} | Country: ${intel.country || 'Unknown'}</div>
+            <div>Vulns: ${vulnList}</div>
+          </div>
+          <div style="margin-top:8px;">
+            <div class="muted">findings</div>
+            ${findingsList}
+          </div>
+        </div>
+      `;
+    }
+
+    runBtn.addEventListener('click', runScan);
+    targetEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') runScan(); });
+    clearBtn.addEventListener('click', () => { logEl.innerHTML = 'awaiting command...'; currentScanId = null; downloadBtn.disabled = true; });
+    downloadBtn.addEventListener('click', () => { if (!currentScanId) return; window.location.href = `/report/${currentScanId}`; });
+
+    // Internal LAN scan logic
+    const scanSubnetBtn = document.getElementById('scanSubnet');
+    const assetBody = document.getElementById('assetBody');
+    const detectStatus = document.getElementById('detectStatus');
+
+    scanSubnetBtn.addEventListener('click', runInternalScan);
+
+    async function runInternalScan() {
+      console.log("Scan Local Network clicked");
+      detectStatus.textContent = "Detecting local network...";
+      assetBody.innerHTML = `<tr><td colspan="6" class="muted">Detecting network...</td></tr>`;
+      try {
+        console.log("Calling /internal/scan");
+        const res = await fetch('/internal/scan');
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || data.error || 'Internal scan failed');
+        console.log("Internal scan response", data);
+        const cidr = data.subnet || 'Unknown';
+        const devices = Array.isArray(data.devices) ? data.devices : [];
+        detectStatus.textContent = `Scan complete for ${cidr} — ${devices.length} devices discovered`;
+        renderAssets(devices);
+      } catch (err) {
+        console.log("Internal scan error", err);
+        detectStatus.textContent = `Error: ${err.message}`;
+        assetBody.innerHTML = `<tr><td colspan="6" class="danger">Error: ${err.message}</td></tr>`;
+      }
+    }
+
+    function isIoT(vendor) {
+      if (!vendor) return false;
+      const upper = vendor.toUpperCase();
+      return upper.includes('HIKVISION') || upper.includes('DAHUA') || upper.includes('ESPRESSIF');
+    }
+
+    function renderAssets(devices) {
+      if (!devices.length) {
+        assetBody.innerHTML = '<tr><td colspan="6" class="muted">No hosts detected.</td></tr>';
+        return;
+      }
+      assetBody.innerHTML = devices.map(dev => {
+        const risk = dev.risk || {};
+        const label = (risk.label || 'LOW').toUpperCase();
+        const isHigh = label === 'HIGH' || label === 'CRITICAL';
+        const vendorBadge = isIoT(dev.vendor) ? `<span class="badge badge-iot">${dev.vendor || 'Unknown'}</span>` : (dev.vendor || 'Unknown');
+        const ports = Array.isArray(dev.ports) ? dev.ports.map(p => `${p.port}/${p.protocol}`).join(', ') : '';
+        const flags = [];
+        if (dev.rogue) flags.push('<span class="badge badge-risk">Rogue</span>');
+        if (!dev.vendor) flags.push('<span class="badge">Unknown Vendor</span>');
+        return `
+          <tr class="${isHigh ? 'high-risk' : ''}">
+            <td>${dev.ip}</td>
+            <td>${dev.mac || 'N/A'}</td>
+            <td>${vendorBadge}</td>
+            <td>${dev.device_type || 'Unknown'}</td>
+            <td>${ports || '-'}</td>
+            <td><span class="badge ${isHigh ? 'badge-risk' : 'badge-safe'}">${label} (${formatScore(risk.score)})</span></td>
+            <td>${flags.join(' ') || '<span class="badge">Monitored</span>'}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function formatScore(val) {
+      if (typeof val === 'number') return val.toFixed(2);
+      return '0.00';
+    }
+  </script>
+</body>
+</html>
