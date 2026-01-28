@@ -1,5 +1,6 @@
 import socket
 import ipaddress
+from urllib.parse import urlparse
 
 
 def get_local_subnet() -> str:
@@ -20,3 +21,20 @@ def get_local_subnet() -> str:
         return str(network)
     except Exception:
         return default_subnet
+
+
+def normalize_target(raw: str) -> str:
+    """
+    Normalize a user-supplied target to a hostname or IP.
+    Strips scheme, path, and trailing slashes.
+    """
+    if not raw:
+        return ""
+    value = raw.strip()
+    if "://" in value:
+        parsed = urlparse(value)
+        host = parsed.hostname or ""
+    else:
+        # remove path/query if present
+        host = value.split("/")[0]
+    return host.strip()

@@ -28,10 +28,23 @@
       font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
       padding: 16px;
     }
+    .topbar {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 24px;
+      margin-bottom: 16px;
+    }
     .nav {
       display: flex;
       gap: 12px;
-      margin-bottom: 16px;
+    }
+    .status-panel {
+      position: absolute;
+      right: 16px;
+      top: 16px;
+      text-align: right;
+      font-size: 12px;
     }
     .nav button {
       background: #0c1117;
@@ -128,12 +141,12 @@
       border-radius: 8px;
       padding: 14px;
       min-height: 300px;
-      white-space: pre-wrap;
+      white-space: normal;
       font-size: 13px;
-      line-height: 1.45;
+      line-height: 1.3;
       overflow-y: auto;
     }
-    .result-block { border-left: 2px solid var(--border); padding-left: 12px; margin-bottom: 12px; }
+    .result-block { border-left: 2px solid var(--border); padding-left: 12px; margin-bottom: 6px; }
     .risk-chip {
       display: inline-flex;
       align-items: center;
@@ -163,8 +176,8 @@
 
     /* Internal (defensive) */
     .noc-panel {
-      background: #0b0f18;
-      border: 1px solid #152032;
+      background: var(--panel);
+      border: 1px solid var(--border);
       border-radius: 12px;
       padding: 16px;
       box-shadow: 0 12px 30px rgba(0,0,0,0.35);
@@ -172,10 +185,10 @@
       margin: 0 auto;
     }
     .noc-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-    .noc-title { color: var(--blue); font-weight: 800; letter-spacing: 0.5px; }
+    .noc-title { color: var(--text); font-weight: 800; letter-spacing: 0.5px; }
     .noc-form { display: flex; gap: 10px; flex-wrap: wrap; }
-    .noc-form input { flex: 1 1 240px; background: #0c121c; color: var(--text); border: 1px solid #1e2a3a; padding: 10px; border-radius: 8px; }
-    .noc-form button { background: var(--blue); color: #04101c; }
+    .noc-form input { flex: 1 1 240px; background: #0b0f14; color: var(--text); border: 1px solid var(--border); padding: 10px; border-radius: 8px; }
+    .noc-form button { background: var(--accent); color: #04100c; }
     .grid {
       width: 100%;
       border-collapse: collapse;
@@ -183,24 +196,54 @@
       font-size: 13px;
     }
     .grid th, .grid td {
-      border: 1px solid #1e2a3a;
+      border: 1px solid var(--border);
       padding: 8px 10px;
       text-align: left;
     }
-    .grid th { background: #0f1726; color: var(--muted); }
-    .grid tr:nth-child(even) { background: #0c121c; }
+    .grid th { background: #0c1117; color: var(--muted); }
+    .grid tr:nth-child(even) { background: #0c1117; }
     .grid tr.high-risk { background: rgba(255,64,64,0.1); }
-    .badge { padding: 4px 8px; border-radius: 10px; font-size: 12px; border: 1px solid #1e2a3a; display: inline-block; }
+    .badge { padding: 4px 8px; border-radius: 10px; font-size: 12px; border: 1px solid var(--border); display: inline-block; }
     .badge-iot { background: rgba(199,146,234,0.15); color: var(--purple); border-color: var(--purple); }
     .badge-safe { color: #3cffc7; border-color: #3cffc7; }
     .badge-risk { color: #ff6b6b; border-color: #ff6b6b; }
-    .tag { background: #0c1117; color: var(--amber); padding: 3px 6px; border-radius: 6px; margin-right: 4px; border: 1px solid #1f2730; }
+    .tag { background: #0c1117; color: var(--muted); padding: 3px 6px; border-radius: 6px; margin-right: 4px; border: 1px solid var(--border); }
+    .terminal-log {
+      min-height: 300px;
+    }
+    .modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+    }
+    .modal.hidden { display: none; }
+    .modal-content {
+      width: min(900px, 95%);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
   </style>
 </head>
 <body>
-  <div class="nav">
-    <button id="btnExternal" class="active">EXTERNAL RECON</button>
-    <button id="btnInternal">INTERNAL DEFENSE</button>
+  <div class="topbar">
+    <div class="nav">
+      <button id="btnExternal" class="active">IP RECON</button>
+      <button id="btnInternal">NETWORK SCANNER</button>
+    </div>
+    <div class="status-panel">
+      <div id="clock" class="muted">Loading time...</div>
+      <div id="publicIp" class="muted">Public IP: Unknown</div>
+    </div>
   </div>
 
   <!-- External Workspace -->
@@ -227,38 +270,64 @@
         </div>
         <div class="status" id="status">ready. enter a target and press run.</div>
         <div class="divider"></div>
-        <div class="log" id="log">awaiting command...</div>
+        <div class="log terminal-log" id="log" contenteditable="true">awaiting command...</div>
       </div>
     </div>
   </div>
 
   <!-- Internal Workspace -->
   <div id="workspaceInternal" class="workspace">
-    <div class="noc-panel">
-      <div class="noc-header">
-        <div class="noc-title">INTERNAL NETWORK SCAN (AUTHORIZED NETWORKS ONLY)</div>
-        <div class="tag">LAN Surveyor</div>
+    <div class="terminal">
+      <div class="title-bar">
+        <div class="dot red"></div><div class="dot amber"></div><div class="dot green"></div>
+        <span>internal network scan :: terminal</span>
       </div>
-      <div class="noc-form">
-        <button id="scanSubnet">SCAN LOCAL NETWORK</button>
-        <div id="detectStatus" class="muted"></div>
+      <div class="content">
+        <div class="prompt-line">
+          <label>mode</label>
+          <div class="muted">AUTHORIZED NETWORKS ONLY</div>
+          <label>action</label>
+          <button id="scanSubnet">SCAN LOCAL NETWORK</button>
+          <button id="downloadInternal" class="btn-ghost">DOWNLOAD REPORT</button>
+        </div>
+        <div class="status" id="detectStatus">waiting for scan...</div>
+        <div class="divider"></div>
+        <table class="grid" id="assetTable">
+          <thead>
+            <tr>
+              <th>IP</th>
+              <th>MAC</th>
+              <th>Vendor</th>
+              <th>Device Type</th>
+              <th>Ports</th>
+              <th>Risk</th>
+              <th>Flags</th>
+            </tr>
+          </thead>
+          <tbody id="assetBody">
+            <tr><td colspan="7" class="muted">Awaiting LAN scan...</td></tr>
+          </tbody>
+        </table>
       </div>
-      <table class="grid" id="assetTable">
-        <thead>
-          <tr>
-            <th>IP</th>
-            <th>MAC</th>
-            <th>Vendor</th>
-            <th>Device Type</th>
-            <th>Ports</th>
-            <th>Risk</th>
-            <th>Flags</th>
-          </tr>
-        </thead>
-        <tbody id="assetBody">
-          <tr><td colspan="6" class="muted">Awaiting LAN scan...</td></tr>
-        </tbody>
-      </table>
+    </div>
+  </div>
+
+  <div id="deviceModal" class="modal hidden">
+    <div class="modal-content">
+      <div class="title-bar">
+        <div class="dot red"></div><div class="dot amber"></div><div class="dot green"></div>
+        <span>device details</span>
+      </div>
+      <div class="content">
+        <div id="deviceInfo" class="muted">Loading device details...</div>
+        <div class="toolbar">
+          <button id="pingBtn" class="btn-ghost">PING TEST</button>
+          <button id="portsBtn" class="btn-ghost">FIND OPEN PORTS</button>
+          <button id="deviceReportBtn" class="btn-ghost">DOWNLOAD DEVICE PDF</button>
+          <button id="closeModal">CLOSE</button>
+        </div>
+        <div id="deviceActions" class="muted"></div>
+      </div>
     </div>
   </div>
 
@@ -288,8 +357,19 @@
     const downloadBtn = document.getElementById('download');
     let currentScanId = null;
 
+    function normalizeTarget(value) {
+      if (!value) return '';
+      const trimmed = value.trim();
+      try {
+        if (trimmed.includes('://')) {
+          return new URL(trimmed).hostname;
+        }
+      } catch (_) {}
+      return trimmed.split('/')[0];
+    }
+
     async function runScan() {
-      const target = targetEl.value.trim();
+      const target = normalizeTarget(targetEl.value);
       const scan_type = scanEl.value;
       if (!target) {
         statusEl.textContent = 'missing target.';
@@ -327,7 +407,11 @@
     function appendLog(text) {
       const ts = new Date().toLocaleTimeString();
       const block = `<div class="result-block">[${ts}] ${text}</div>`;
-      logEl.innerHTML = `${block}${logEl.innerHTML === 'awaiting command...' ? '' : '<br/>' + logEl.innerHTML}`;
+      if (logEl.textContent.trim() === 'awaiting command...') {
+        logEl.innerHTML = block;
+      } else {
+        logEl.insertAdjacentHTML('afterbegin', block);
+      }
     }
 
     function renderScanResult(data) {
@@ -395,7 +479,7 @@
             ${findingsList}
           </div>
         </div>
-      `;
+      `.trim();
     }
 
     runBtn.addEventListener('click', runScan);
@@ -405,15 +489,27 @@
 
     // Internal LAN scan logic
     const scanSubnetBtn = document.getElementById('scanSubnet');
+    const downloadInternalBtn = document.getElementById('downloadInternal');
     const assetBody = document.getElementById('assetBody');
     const detectStatus = document.getElementById('detectStatus');
+    const deviceModal = document.getElementById('deviceModal');
+    const deviceInfo = document.getElementById('deviceInfo');
+    const deviceActions = document.getElementById('deviceActions');
+    const pingBtn = document.getElementById('pingBtn');
+    const portsBtn = document.getElementById('portsBtn');
+    const deviceReportBtn = document.getElementById('deviceReportBtn');
+    const closeModal = document.getElementById('closeModal');
+    let currentDeviceIp = null;
 
     scanSubnetBtn.addEventListener('click', runInternalScan);
+    downloadInternalBtn.addEventListener('click', () => {
+      window.location.href = '/internal/report';
+    });
 
     async function runInternalScan() {
       console.log("Scan Local Network clicked");
       detectStatus.textContent = "Detecting local network...";
-      assetBody.innerHTML = `<tr><td colspan="6" class="muted">Detecting network...</td></tr>`;
+      assetBody.innerHTML = `<tr><td colspan="7" class="muted">Detecting network...</td></tr>`;
       try {
         console.log("Calling /internal/scan");
         const res = await fetch('/internal/scan');
@@ -422,12 +518,12 @@
         console.log("Internal scan response", data);
         const cidr = data.subnet || 'Unknown';
         const devices = Array.isArray(data.devices) ? data.devices : [];
-        detectStatus.textContent = `Scan complete for ${cidr} — ${devices.length} devices discovered`;
+        detectStatus.textContent = `Scan complete for ${cidr} - ${devices.length} devices discovered`;
         renderAssets(devices);
       } catch (err) {
         console.log("Internal scan error", err);
         detectStatus.textContent = `Error: ${err.message}`;
-        assetBody.innerHTML = `<tr><td colspan="6" class="danger">Error: ${err.message}</td></tr>`;
+        assetBody.innerHTML = `<tr><td colspan="7" class="danger">Error: ${err.message}</td></tr>`;
       }
     }
 
@@ -439,7 +535,7 @@
 
     function renderAssets(devices) {
       if (!devices.length) {
-        assetBody.innerHTML = '<tr><td colspan="6" class="muted">No hosts detected.</td></tr>';
+        assetBody.innerHTML = '<tr><td colspan="7" class="muted">No hosts detected.</td></tr>';
         return;
       }
       assetBody.innerHTML = devices.map(dev => {
@@ -469,6 +565,108 @@
       if (typeof val === 'number') return val.toFixed(2);
       return '0.00';
     }
+
+    function updateClock() {
+      const now = new Date();
+      const options = { weekday: 'short', year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
+      document.getElementById('clock').textContent = now.toLocaleString(undefined, options);
+    }
+
+    async function loadPublicIp() {
+      try {
+        const res = await fetch('/utils/public-ip');
+        const data = await res.json();
+        document.getElementById('publicIp').textContent = `Public IP: ${data.ip || 'Unknown'}`;
+      } catch (_) {
+        document.getElementById('publicIp').textContent = 'Public IP: Unknown';
+      }
+    }
+
+    updateClock();
+    setInterval(updateClock, 1000);
+    loadPublicIp();
+
+    function openModal(ip) {
+      currentDeviceIp = ip;
+      deviceInfo.textContent = 'Loading device details...';
+      deviceActions.textContent = '';
+      deviceModal.classList.remove('hidden');
+      fetch(`/internal/device/${ip}`).then(r => r.json()).then(data => {
+        deviceInfo.innerHTML = renderDeviceInfo(data);
+      }).catch(err => {
+        deviceInfo.textContent = `Error: ${err.message}`;
+      });
+    }
+
+    function renderDeviceInfo(d) {
+      const rows = [
+        ["IP Address", d.ip],
+        ["IPv4", d.ipv4 || 'Unknown'],
+        ["IPv6", d.ipv6 || 'Unknown'],
+        ["Public IP", d.public_ip || 'Unknown'],
+        ["ISP", d.isp || 'Unknown'],
+        ["City", d.city || 'Unknown'],
+        ["Region", d.region || 'Unknown'],
+        ["Country", d.country || 'Unknown'],
+        ["Hostname", d.hostname || 'Unknown'],
+        ["Target Host", d.target_host || 'Unknown'],
+        ["OS Detected", d.os_detected || 'Unknown'],
+        ["MAC Address", d.mac_address || 'Unknown'],
+        ["MAC Vendor", d.mac_vendor || 'Unknown'],
+        ["Device Manufacturer", d.device_manufacturer || 'Unknown'],
+        ["NetBIOS Name", d.netbios_name || 'Unknown'],
+        ["NetBIOS Domain", d.netbios_domain || 'Unknown'],
+        ["File Server", d.fileserver || 'Unknown'],
+        ["First Seen", d.first_seen || 'Unknown']
+      ];
+      return `<table class="grid">
+        <tbody>
+          ${rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('')}
+        </tbody>
+      </table>`;
+    }
+
+    assetBody.addEventListener('click', (e) => {
+      const row = e.target.closest('tr');
+      if (!row) return;
+      const ipCell = row.querySelector('td');
+      if (!ipCell) return;
+      const ip = ipCell.textContent.trim();
+      if (ip && ip !== 'N/A') {
+        openModal(ip);
+      }
+    });
+
+    pingBtn.addEventListener('click', () => {
+      if (!currentDeviceIp) return;
+      deviceActions.textContent = 'Running ping test...';
+      fetch(`/internal/device/${currentDeviceIp}/ping`).then(r => r.json()).then(data => {
+        deviceActions.textContent = `Ping results - min: ${data.min_ms} ms, avg: ${data.avg_ms} ms, max: ${data.max_ms} ms, loss: ${data.packet_loss}%`;
+      }).catch(err => {
+        deviceActions.textContent = `Error: ${err.message}`;
+      });
+    });
+
+    portsBtn.addEventListener('click', () => {
+      if (!currentDeviceIp) return;
+      deviceActions.textContent = 'Scanning open ports...';
+      fetch(`/internal/device/${currentDeviceIp}/ports`).then(r => r.json()).then(data => {
+        const ports = Array.isArray(data.ports) ? data.ports : [];
+        deviceActions.textContent = `Open ports: ${ports.map(p => p.port + '/' + p.protocol).join(', ') || 'None'}`;
+      }).catch(err => {
+        deviceActions.textContent = `Error: ${err.message}`;
+      });
+    });
+
+    deviceReportBtn.addEventListener('click', () => {
+      if (!currentDeviceIp) return;
+      window.location.href = `/internal/device/${currentDeviceIp}/report`;
+    });
+
+    closeModal.addEventListener('click', () => {
+      deviceModal.classList.add('hidden');
+      currentDeviceIp = null;
+    });
   </script>
 </body>
 </html>

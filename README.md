@@ -36,20 +36,36 @@ requirements.txt
 ```
 
 ## Setup
-1. Clone and create virtualenv (Python 3.11+ recommended).
-2. Install deps:
+1. Clone the repo and create a virtual environment (Python 3.11+ recommended):
+   ```bash
+   python -m venv venv
+   ```
+2. Activate the virtual environment:
+   - Windows (PowerShell):
+     ```powershell
+     .\venv\Scripts\Activate.ps1
+     ```
+   - Windows (cmd):
+     ```cmd
+     .\venv\Scripts\activate.bat
+     ```
+   - macOS/Linux:
+     ```bash
+     source venv/bin/activate
+     ```
+3. Install deps:
    ```bash
    pip install -r requirements.txt
    ```
-3. Add `.env` with your Shodan API key:
+4. Add `.env` with your Shodan API key:
    ```
    SHODAN_API_KEY=your_key_here
    ```
-4. Run the server:
+5. Run the server:
    ```bash
    uvicorn app.main:app --reload
    ```
-5. Open the UI at `http://localhost:8000/`.
+6. Open the UI at `http://localhost:8000/`.
 
 ## Usage
 - **External Recon (UI):** Enter target IP/hostname, choose quick/full, click `run`. Results render as a structured block (risk chip, ports table, intel, findings). Clear logs or download the PDF report via toolbar.
@@ -66,6 +82,14 @@ requirements.txt
   ```
 - **View history:** `GET /history` returns the last 10 external records (id, target, timestamp, risk score/level).
 - **Download PDF report:** `GET /report/{scan_id}` uses the stored external scan to emit a PDF saved under `reports/` and streamed to the client.
+
+## Running on Another Computer
+Virtual environments are not portable between machines. A new user should:
+1. Clone the repo on their machine.
+2. Create and activate their own virtual environment.
+3. Install dependencies with `pip install -r requirements.txt`.
+4. Add their own `.env` (Shodan API key).
+5. Run the server with `uvicorn app.main:app --reload`.
 
 ## Risk Scoring (analyzer.py)
 - Base: +0.2 per non-standard open port.

@@ -4,6 +4,7 @@ from app.core.scanner import NmapScanner
 from app.core.intelligence import ShodanIntel
 from app.core.analyzer import RiskAnalyzer
 from app.core.local_scanner import LocalNetworkScanner
+from app.core.device_inspector import DeviceInspector
 from app.models.schemas import (
     ScanRequest,
     LocalScanRequest,
@@ -20,7 +21,8 @@ import json
 from typing import List
 from datetime import datetime
 import os
-from app.utils.network import get_local_subnet
+from app.utils.network import get_local_subnet, normalize_target
+import requests
 import ipaddress
 
 app = FastAPI(title="Intelligent Network Scanner")
@@ -31,6 +33,8 @@ intel_engine = ShodanIntel()
 risk_engine = RiskAnalyzer()
 local_scanner = LocalNetworkScanner()
 report_engine = PDFGenerator()
+device_inspector = DeviceInspector()
+last_internal_scan: dict = {}
 
 # Create DB tables on startup
 Base.metadata.create_all(bind=engine)
@@ -46,13 +50,16 @@ def get_db():
 @app.post("/scan/external", response_model=ScanResult)
 def perform_external_scan(request: ScanRequest, db=Depends(get_db)):
     try:
+        target = normalize_target(request.target)
+        if not target:
+            raise HTTPException(status_code=400, detail="Invalid target")
         # 1. Perform Active Scan (Nmap)
-        nmap_data: ActiveScanResult = scanner_engine.scan(request.target, request.scan_type)
+        nmap_data: ActiveScanResult = scanner_engine.scan(target, request.scan_type)
         
         # 2. Perform Passive Scan (Shodan)
         # Note: Shodan only has data for PUBLIC IPs. 
         # Local IPs (192.168.x.x, 127.0.0.1) will return "not found".
-        shodan_data = intel_engine.get_ip_data(request.target)
+        shodan_data = intel_engine.get_ip_data(target)
         
         # 3. Combine Data
         # We take the Nmap result and inject the Shodan data into it
@@ -148,6 +155,15 @@ def get_my_subnet():
     return {"cidr": get_local_subnet()}
 
 
+@app.get("/utils/public-ip")
+def get_public_ip():
+    try:
+        resp = requests.get("https://api.ipify.org?format=json", timeout=3)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception:
+        return {"ip": "Unknown"}
+
 @app.get("/internal/scan")
 async def internal_scan():
     """
@@ -161,11 +177,75 @@ async def internal_scan():
     print(f"Starting LAN scan for subnet {net}")
     devices = await local_scanner.scan_subnet_async(str(net))
     print(f"Discovered {len(devices)} devices; returning scan result")
-    return {
+    global last_internal_scan
+    last_internal_scan = {
         "subnet": str(net),
         "devices_found": len(devices),
         "devices": devices,
     }
+    return last_internal_scan
+
+
+@app.get("/internal/report")
+def internal_report():
+    if not last_internal_scan:
+        raise HTTPException(status_code=404, detail="No internal scan data available")
+    file_path = report_engine.generate_internal_report(last_internal_scan)
+    return FileResponse(
+        file_path,
+        media_type="application/pdf",
+        filename=file_path.split(os.sep)[-1]
+    )
+
+
+@app.get("/internal/device/{ip}")
+def internal_device_info(ip: str):
+    try:
+        ip_obj = ipaddress.ip_address(ip)
+        if not ip_obj.is_private:
+            raise HTTPException(status_code=400, detail="Offline scanner is restricted to local networks only")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid IP address")
+
+    cached = None
+    for dev in (last_internal_scan.get("devices") or []):
+        if dev.get("ip") == ip:
+            cached = dev
+            break
+    return device_inspector.get_device_info(ip, cached)
+
+
+@app.get("/internal/device/{ip}/ping")
+def internal_device_ping(ip: str):
+    try:
+        ip_obj = ipaddress.ip_address(ip)
+        if not ip_obj.is_private:
+            raise HTTPException(status_code=400, detail="Offline scanner is restricted to local networks only")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid IP address")
+    return device_inspector.ping_test(ip)
+
+
+@app.get("/internal/device/{ip}/ports")
+def internal_device_ports(ip: str):
+    try:
+        ip_obj = ipaddress.ip_address(ip)
+        if not ip_obj.is_private:
+            raise HTTPException(status_code=400, detail="Offline scanner is restricted to local networks only")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid IP address")
+    return {"ports": device_inspector.scan_ports(ip)}
+
+
+@app.get("/internal/device/{ip}/report")
+def internal_device_report(ip: str):
+    info = internal_device_info(ip)
+    file_path = report_engine.generate_device_report(info)
+    return FileResponse(
+        file_path,
+        media_type="application/pdf",
+        filename=file_path.split(os.sep)[-1]
+    )
 
 
 @app.get("/", response_class=FileResponse)

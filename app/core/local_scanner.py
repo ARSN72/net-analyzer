@@ -21,6 +21,7 @@ class LocalNetworkScanner:
     def __init__(self):
         self.nm = nmap.PortScanner()
         self.analyzer = InternalRiskAnalyzer()
+        self._live_hosts: set[str] = set()
 
     def scan_subnet(self, cidr: str) -> List[Dict[str, Any]]:
         """Synchronous scanning routine (run in worker thread)."""
@@ -28,13 +29,26 @@ class LocalNetworkScanner:
 
         discovered_hosts = self._discover_hosts(cidr)
 
+        print(f"Starting service scan on {len(self._live_hosts)} hosts")
+        port_results: dict[str, List[Dict[str, Any]]] = {}
+        hosts_to_scan = [h for h in discovered_hosts.keys() if h in self._live_hosts]
+        if hosts_to_scan:
+            with ThreadPoolExecutor(max_workers=16) as executor:
+                futures = {executor.submit(self._scan_host_ports, host): host for host in hosts_to_scan}
+                for fut in as_completed(futures):
+                    host = futures[fut]
+                    try:
+                        port_results[host] = fut.result()
+                    except Exception:
+                        port_results[host] = []
+
         for host, arp_mac in discovered_hosts.items():
             mac = arp_mac or "Unknown"
             vendor = "Unknown"
             hostname = "Unknown"
 
             # Phase 2: Enrichment per host (fast port scan)
-            host_ports = self._scan_host_ports(host)
+            host_ports = port_results.get(host, []) if host in self._live_hosts else []
 
             vendor_raw = None
             hostname_raw = None
@@ -86,6 +100,7 @@ class LocalNetworkScanner:
         # Phase 1: Active probing (parallel)
         start = time.perf_counter()
         live_hosts = self._probe_hosts_parallel(hosts)
+        self._live_hosts = set(live_hosts)
         print(f"Probed {len(hosts)} IPs in {time.perf_counter() - start:.2f}s")
 
         # Phase 2: Parse ARP table once
@@ -98,6 +113,8 @@ class LocalNetworkScanner:
         for ip, mac in arp_hosts.items():
             if ip not in host_map:
                 host_map[ip] = mac
+        if not self._live_hosts and host_map:
+            self._live_hosts = set(host_map.keys())
 
         # Fallback: if still empty, try nmap ping discovery
         if not host_map:
@@ -109,15 +126,18 @@ class LocalNetworkScanner:
                 except KeyError:
                     continue
             print(f"Nmap discovery fallback found {len(host_map)} hosts")
+            if not self._live_hosts:
+                self._live_hosts = set(host_map.keys())
 
         return host_map
 
     def _scan_host_ports(self, host: str) -> List[Dict[str, Any]]:
         ports: List[Dict[str, Any]] = []
-        self.nm.scan(hosts=host, arguments="--top-ports 100 -T4")
-        if host not in self.nm.all_hosts():
+        scanner = nmap.PortScanner()
+        scanner.scan(hosts=host, arguments="--top-ports 100 -T4 -Pn --host-timeout 15s")
+        if host not in scanner.all_hosts():
             return ports
-        host_data = self.nm[host]
+        host_data = scanner[host]
         for proto in host_data.all_protocols():
             for port in sorted(host_data[proto].keys()):
                 svc = host_data[proto][port]
@@ -171,19 +191,23 @@ class LocalNetworkScanner:
             return "IoT/Camera"
         return "Unknown"
 
-    def _probe_ip(self, ip: str):
-        """Send a quick ping and TCP probe to populate ARP."""
+    def _probe_ip(self, ip: str) -> bool:
+        """Send a quick ping and TCP probe to populate ARP. Returns True if reachable."""
+        reachable = False
         # ICMP ping
         try:
             ping_cmd = ["ping", "-n", "1", "-w", "200", ip] if self._is_windows() else ["ping", "-c", "1", "-W", "1", ip]
-            subprocess.run(ping_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.5)
+            result = subprocess.run(ping_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.5)
+            if result.returncode == 0:
+                reachable = True
         except Exception:
             pass
         # TCP probe
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.settimeout(0.2)
-            s.connect_ex((ip, 80))
+            if s.connect_ex((ip, 80)) == 0:
+                reachable = True
         except Exception:
             pass
         finally:
@@ -191,6 +215,7 @@ class LocalNetworkScanner:
                 s.close()
             except Exception:
                 pass
+        return reachable
 
     def _probe_hosts_parallel(self, hosts: List[str]) -> List[str]:
         """Probe hosts concurrently with short timeouts."""
@@ -200,9 +225,8 @@ class LocalNetworkScanner:
             for fut in as_completed(futures):
                 ip = futures[fut]
                 try:
-                    fut.result()
-                    # A successful probe does not guarantee alive; we rely on ARP + socket success
-                    live.append(ip)
+                    if fut.result():
+                        live.append(ip)
                 except Exception:
                     continue
         return live
