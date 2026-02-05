@@ -7,7 +7,7 @@ class NmapScanner:
     def __init__(self):
         self.nm = nmap.PortScanner()
 
-    def scan(self, target: str, scan_type: str = "quick") -> ActiveScanResult:
+    def scan(self, target: str, scan_type: str = "quick", scan_speed: str = "standard") -> ActiveScanResult:
         """
         Executes the Nmap scan and parses the result.
         """
@@ -21,17 +21,25 @@ class NmapScanner:
             raise Exception(f"DNS Error: Could not resolve {target}")
 
         # Arguments
-        if scan_type == "quick":
-            args = "-T4 -F -Pn -n"
+        speed = (scan_speed or "standard").lower()
+        if speed == "fast":
+            timing = "-T5 --max-retries 1 --host-timeout 20s"
+        elif speed == "aggressive":
+            timing = "-T4 --max-retries 2 --host-timeout 60s"
         else:
-            args = "-T4 -sV -sC --top-ports 200 -Pn -n"
+            timing = "-T4 --max-retries 1 --host-timeout 40s"
+
+        if scan_type == "quick":
+            args = f"{timing} -F -Pn -n"
+        else:
+            args = f"{timing} -sV --top-ports 200 -Pn -n"
 
         # Perform scan
         self.nm.scan(hosts=resolved_ip, arguments=args)
 
         # Fallback if empty
         if resolved_ip not in self.nm.all_hosts() or not self.nm[resolved_ip].all_protocols():
-            fallback_args = "-T4 -sT --top-ports 1000 -Pn -n"
+            fallback_args = "-T4 -sT --top-ports 500 -Pn -n --max-retries 1 --host-timeout 60s"
             print(f"[*] Primary scan empty, running fallback: {fallback_args}")
             self.nm.scan(hosts=resolved_ip, arguments=fallback_args)
             if resolved_ip not in self.nm.all_hosts() or not self.nm[resolved_ip].all_protocols():

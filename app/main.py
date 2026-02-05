@@ -24,6 +24,9 @@ from app.models.schemas import (
 from app.db.database import SessionLocal, engine, Base
 from app.db.models import ScanRecord
 from app.utils.network import get_local_subnet, normalize_target
+from app.utils.emailer import send_email
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.interval import IntervalTrigger
 
 
 app = FastAPI(title="Intelligent Network Scanner")
@@ -36,6 +39,8 @@ local_scanner = LocalNetworkScanner()
 device_inspector = DeviceInspector()
 report_engine = PDFGenerator()
 last_internal_scan: dict = {}
+scheduler = BackgroundScheduler()
+scheduler.start()
 
 # Create DB tables on startup
 Base.metadata.create_all(bind=engine)
@@ -62,7 +67,7 @@ def perform_external_scan(request: ScanRequest, db=Depends(get_db)):
         if not target:
             raise HTTPException(status_code=400, detail="Invalid target")
 
-        nmap_data: ActiveScanResult = scanner_engine.scan(target, request.scan_type)
+        nmap_data: ActiveScanResult = scanner_engine.scan(target, request.scan_type, request.scan_speed)
         shodan_data = intel_engine.get_ip_data(target)
 
         final_result = ScanResult(
@@ -92,6 +97,70 @@ def perform_external_scan(request: ScanRequest, db=Depends(get_db)):
         return final_result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _run_external_scheduled(target: str, scan_type: str = "quick"):
+    try:
+        nmap_data: ActiveScanResult = scanner_engine.scan(target, scan_type)
+        shodan_data = intel_engine.get_ip_data(target)
+        final_result = ScanResult(
+            ip=nmap_data.ip,
+            hostname=nmap_data.hostname,
+            os_detected=nmap_data.os_detected,
+            services=nmap_data.services,
+            open_ports_count=nmap_data.open_ports_count,
+            intelligence=IntelInfo(**shodan_data),
+            risk=risk_engine.calculate_risk(nmap_data, shodan_data),
+        )
+        if final_result.risk and final_result.risk.score >= 7.0:
+            body = f"Target: {final_result.ip}\nRisk: {final_result.risk.score} {final_result.risk.label}"
+            send_email("Scheduled External Scan Alert", body)
+    except Exception:
+        pass
+
+
+def _run_internal_scheduled():
+    try:
+        cidr = get_local_subnet()
+        net = ipaddress.ip_network(cidr, strict=False)
+        if not net.is_private:
+            return
+        devices = local_scanner.scan_subnet(str(net), request.scan_speed)
+        body = f"Internal scan completed for {net}. Devices found: {len(devices)}"
+        send_email("Scheduled Internal Scan Report", body)
+    except Exception:
+        pass
+
+
+@app.post("/schedule/external")
+def schedule_external(payload: dict):
+    target = normalize_target(payload.get("target", ""))
+    minutes = int(payload.get("minutes", 60))
+    scan_type = payload.get("scan_type", "quick")
+    if not target:
+        raise HTTPException(status_code=400, detail="Invalid target")
+    job_id = f"external:{target}"
+    scheduler.add_job(_run_external_scheduled, IntervalTrigger(minutes=minutes), id=job_id, replace_existing=True, args=[target, scan_type])
+    return {"status": "scheduled", "job_id": job_id, "minutes": minutes}
+
+
+@app.post("/schedule/internal")
+def schedule_internal(payload: dict):
+    minutes = int(payload.get("minutes", 60))
+    job_id = "internal:local"
+    scheduler.add_job(_run_internal_scheduled, IntervalTrigger(minutes=minutes), id=job_id, replace_existing=True)
+    return {"status": "scheduled", "job_id": job_id, "minutes": minutes}
+
+
+@app.get("/schedule/list")
+def schedule_list():
+    return [{"id": j.id, "next_run": str(j.next_run_time)} for j in scheduler.get_jobs()]
+
+
+@app.delete("/schedule/{job_id}")
+def schedule_delete(job_id: str):
+    scheduler.remove_job(job_id)
+    return {"status": "deleted", "job_id": job_id}
 
 
 @app.get("/history", response_model=list[ScanHistoryItem])
@@ -145,15 +214,16 @@ def scan_internal(request: LocalScanRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/internal/scan")
-async def internal_scan():
+@app.post("/internal/scan")
+async def internal_scan(payload: dict | None = None):
     cidr = get_local_subnet()
     print(f"Internal network scan endpoint hit for {cidr}")
     net = ipaddress.ip_network(cidr, strict=False)
     if not net.is_private:
         return {"error": "Offline scanner is restricted to local networks only"}
     print(f"Starting LAN scan for subnet {net}")
-    devices = await local_scanner.scan_subnet_async(str(net))
+    scan_speed = (payload or {}).get("scan_speed", "standard")
+    devices = await local_scanner.scan_subnet_async(str(net), scan_speed)
     print(f"Discovered {len(devices)} devices; returning scan result")
     global last_internal_scan
     last_internal_scan = {

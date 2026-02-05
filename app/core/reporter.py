@@ -161,6 +161,23 @@ class PDFGenerator:
             c.drawString(60, y, "No significant findings.")
             y -= 12
 
+        # Findings
+        findings = (risk.get("findings") or [])
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(50, y, "Findings")
+        y -= 16
+        c.setFont("Helvetica", 10)
+        if findings:
+            for f in findings:
+                c.drawString(60, y, f"- {f}")
+                y -= 12
+                if y < 80:
+                    c.showPage()
+                    y = height - 50
+        else:
+            c.drawString(60, y, "No significant findings.")
+            y -= 12
+
         # Footer
         c.setFont("Helvetica-Oblique", 9)
         c.setFillColor(colors.HexColor("#6b7683"))

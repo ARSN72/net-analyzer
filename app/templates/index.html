@@ -92,6 +92,15 @@
     .dot.amber { background: #ffbd2e; }
     .dot.green { background: #27c93f; }
     .content { padding: 18px; display: grid; gap: 12px; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .panel {
+      background: #0c1117;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+    }
     .prompt-line {
       display: grid;
       grid-template-columns: auto 1fr auto;
@@ -260,15 +269,35 @@
         <span>external recon :: terminal</span>
       </div>
       <div class="content">
-        <div class="prompt-line">
-          <label for="target">target</label>
-          <input id="target" type="text" placeholder="e.g. 8.8.8.8 or example.com" />
+        <div class="two-col">
+          <div class="panel">
+            <div class="muted">target scanning</div>
+            <label for="target">target</label>
+            <input id="target" type="text" placeholder="e.g. 8.8.8.8 or example.com" />
           <label for="scan_type">scan</label>
           <select id="scan_type">
             <option value="quick">quick</option>
             <option value="full">full</option>
           </select>
+          <label for="scan_speed">speed</label>
+          <select id="scan_speed">
+            <option value="fast">fast</option>
+            <option value="standard" selected>standard</option>
+            <option value="aggressive">aggressive</option>
+          </select>
           <button id="run">run</button>
+        </div>
+          <div class="panel">
+            <div class="muted">schedule</div>
+            <label for="extSchedule">interval (min)</label>
+            <input id="extSchedule" type="number" min="1" step="1" placeholder="e.g. 60" />
+            <button id="extScheduleBtn" class="btn-ghost">schedule external</button>
+            <div class="muted">schedules</div>
+            <button id="listSchedules" class="btn-ghost">view schedules</button>
+            <input id="deleteScheduleId" type="text" placeholder="job id to delete" />
+            <button id="deleteScheduleBtn" class="btn-ghost">delete schedule</button>
+            <div class="status" id="scheduleStatus">no schedules loaded</div>
+          </div>
         </div>
         <div class="toolbar">
           <button id="clear" class="btn-ghost">clear logs</button>
@@ -289,13 +318,26 @@
         <span>internal network scan :: terminal</span>
       </div>
       <div class="content">
-        <div class="prompt-line">
-          <label>mode</label>
-          <div class="muted">AUTHORIZED NETWORKS ONLY</div>
-          <label>action</label>
-          <button id="scanSubnet">SCAN LOCAL NETWORK</button>
-          <button id="refreshSubnet" class="btn-ghost">REFRESH LIST</button>
-          <button id="downloadInternal" class="btn-ghost">DOWNLOAD REPORT</button>
+        <div class="two-col">
+          <div class="panel">
+            <div class="muted">network scanning</div>
+            <div class="muted">AUTHORIZED NETWORKS ONLY</div>
+            <label for="internal_speed">speed</label>
+            <select id="internal_speed">
+              <option value="fast">fast</option>
+              <option value="standard" selected>standard</option>
+              <option value="aggressive">aggressive</option>
+            </select>
+            <button id="scanSubnet">SCAN LOCAL NETWORK</button>
+            <button id="refreshSubnet" class="btn-ghost">REFRESH LIST</button>
+            <button id="downloadInternal" class="btn-ghost">DOWNLOAD REPORT</button>
+          </div>
+          <div class="panel">
+            <div class="muted">schedule</div>
+            <label for="intSchedule">interval (min)</label>
+            <input id="intSchedule" type="number" min="1" step="1" placeholder="e.g. 120" />
+            <button id="intScheduleBtn" class="btn-ghost">schedule internal</button>
+          </div>
         </div>
         <div class="status" id="detectStatus">waiting for scan...</div>
         <div class="divider"></div>
@@ -357,11 +399,18 @@
     // External recon logic
     const targetEl = document.getElementById('target');
     const scanEl = document.getElementById('scan_type');
+    const speedEl = document.getElementById('scan_speed');
     const statusEl = document.getElementById('status');
     const logEl = document.getElementById('log');
     const runBtn = document.getElementById('run');
     const clearBtn = document.getElementById('clear');
     const downloadBtn = document.getElementById('download');
+    const extScheduleInput = document.getElementById('extSchedule');
+    const extScheduleBtn = document.getElementById('extScheduleBtn');
+    const listSchedulesBtn = document.getElementById('listSchedules');
+    const deleteScheduleId = document.getElementById('deleteScheduleId');
+    const deleteScheduleBtn = document.getElementById('deleteScheduleBtn');
+    const scheduleStatus = document.getElementById('scheduleStatus');
     let currentScanId = null;
 
     function normalizeTarget(value) {
@@ -378,6 +427,7 @@
     async function runScan() {
       const target = normalizeTarget(targetEl.value);
       const scan_type = scanEl.value;
+      const scan_speed = speedEl.value || 'standard';
       if (!target) {
         statusEl.textContent = 'missing target.';
         statusEl.classList.add('danger');
@@ -392,7 +442,7 @@
         const res = await fetch('/scan/external', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ target, scan_type })
+          body: JSON.stringify({ target, scan_type, scan_speed })
         });
         const data = await res.json();
         if (!res.ok) {
@@ -493,11 +543,66 @@
     targetEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') runScan(); });
     clearBtn.addEventListener('click', () => { logEl.innerHTML = 'awaiting command...'; currentScanId = null; downloadBtn.disabled = true; });
     downloadBtn.addEventListener('click', () => { if (!currentScanId) return; window.location.href = `/report/${currentScanId}`; });
+    extScheduleBtn.addEventListener('click', async () => {
+      const minutes = parseInt(extScheduleInput.value || '0', 10);
+      const target = normalizeTarget(targetEl.value);
+      if (!target || minutes <= 0) {
+        statusEl.textContent = 'set target and schedule minutes';
+        statusEl.classList.add('danger');
+        return;
+      }
+      statusEl.classList.remove('danger');
+      statusEl.textContent = 'scheduling external scan...';
+      const res = await fetch('/schedule/external', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target, minutes, scan_type: scanEl.value })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        statusEl.textContent = data.detail || 'schedule failed';
+        return;
+      }
+      statusEl.textContent = `scheduled external scan every ${minutes} minutes`;
+    });
+
+    listSchedulesBtn.addEventListener('click', async () => {
+      scheduleStatus.textContent = 'loading schedules...';
+      const res = await fetch('/schedule/list');
+      const data = await res.json();
+      if (!res.ok) {
+        scheduleStatus.textContent = data.detail || 'failed to load schedules';
+        return;
+      }
+      if (!data.length) {
+        scheduleStatus.textContent = 'no schedules';
+        return;
+      }
+      scheduleStatus.textContent = data.map(j => `${j.id} | next: ${j.next_run}`).join(' ; ');
+    });
+
+    deleteScheduleBtn.addEventListener('click', async () => {
+      const jobId = deleteScheduleId.value.trim();
+      if (!jobId) {
+        scheduleStatus.textContent = 'enter job id to delete';
+        return;
+      }
+      const res = await fetch(`/schedule/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) {
+        scheduleStatus.textContent = data.detail || 'delete failed';
+        return;
+      }
+      scheduleStatus.textContent = `deleted ${jobId}`;
+    });
 
     // Internal LAN scan logic
     const scanSubnetBtn = document.getElementById('scanSubnet');
     const downloadInternalBtn = document.getElementById('downloadInternal');
     const refreshSubnetBtn = document.getElementById('refreshSubnet');
+    const internalSpeedEl = document.getElementById('internal_speed');
+    const intScheduleInput = document.getElementById('intSchedule');
+    const intScheduleBtn = document.getElementById('intScheduleBtn');
     const assetBody = document.getElementById('assetBody');
     const detectStatus = document.getElementById('detectStatus');
     const deviceModal = document.getElementById('deviceModal');
@@ -514,6 +619,25 @@
     downloadInternalBtn.addEventListener('click', () => {
       window.location.href = '/internal/report';
     });
+    intScheduleBtn.addEventListener('click', async () => {
+      const minutes = parseInt(intScheduleInput.value || '0', 10);
+      if (minutes <= 0) {
+        detectStatus.textContent = 'set schedule minutes';
+        return;
+      }
+      detectStatus.textContent = 'scheduling internal scan...';
+      const res = await fetch('/schedule/internal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ minutes })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        detectStatus.textContent = data.detail || 'schedule failed';
+        return;
+      }
+      detectStatus.textContent = `scheduled internal scan every ${minutes} minutes`;
+    });
 
     async function runInternalScan() {
       console.log("Scan Local Network clicked");
@@ -521,7 +645,12 @@
       assetBody.innerHTML = `<tr><td colspan="7" class="muted">Detecting network...</td></tr>`;
       try {
         console.log("Calling /internal/scan");
-        const res = await fetch('/internal/scan');
+        const speed = internalSpeedEl.value || 'standard';
+        const res = await fetch('/internal/scan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scan_speed: speed })
+        });
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || data.error || 'Internal scan failed');
         console.log("Internal scan response", data);
@@ -632,6 +761,10 @@
         ["NetBIOS Name", d.netbios_name || 'Unknown'],
         ["NetBIOS Domain", d.netbios_domain || 'Unknown'],
         ["File Server", d.fileserver || 'Unknown'],
+        ["HTTP Server", d.http_server || 'Unknown'],
+        ["HTTPS Server", d.https_server || 'Unknown'],
+        ["TLS Subject", d.tls_subject || 'Unknown'],
+        ["TLS Issuer", d.tls_issuer || 'Unknown'],
         ["First Seen", d.first_seen || 'Unknown']
       ];
       return `<table class="grid">

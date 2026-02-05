@@ -45,6 +45,10 @@ class DeviceInspector:
             info["netbios_name"] = cached.get("netbios_name") or info["netbios_name"]
             info["netbios_domain"] = cached.get("netbios_domain") or info["netbios_domain"]
             info["fileserver"] = cached.get("fileserver") or info["fileserver"]
+            info["http_server"] = cached.get("http_server") or "Unknown"
+            info["https_server"] = cached.get("https_server") or "Unknown"
+            info["tls_subject"] = cached.get("tls_subject") or "Unknown"
+            info["tls_issuer"] = cached.get("tls_issuer") or "Unknown"
             info["device_type"] = cached.get("device_type") or "Unknown"
             info["open_ports"] = [p.get("port") for p in cached.get("ports", []) if isinstance(p, dict)]
         else:

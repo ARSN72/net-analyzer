@@ -3,3 +3,12 @@ uvicorn
 python-dotenv
 pydantic
 python-nmap
+requests==2.31.0
+sqlalchemy==2.0.25
+reportlab==4.0.9
+apscheduler==3.10.4
+shodan==1.31.0
+requests==2.31.0
+sqlalchemy==2.0.25
+reportlab==4.0.9
+apscheduler==3.10.4

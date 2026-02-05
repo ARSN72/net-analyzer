@@ -8,6 +8,7 @@ import sys
 import time
 import os
 import requests
+import ssl
 from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from app.core.internal_analyzer import InternalRiskAnalyzer
@@ -29,18 +30,19 @@ class LocalNetworkScanner:
         self._network_context: dict[str, str] = {}
         self.oui = OUILookup(os.path.join(os.path.dirname(__file__), "..", "..", "data", "oui", "oui.csv"))
 
-    def scan_subnet(self, cidr: str) -> List[Dict[str, Any]]:
+    def scan_subnet(self, cidr: str, scan_speed: str = "standard") -> List[Dict[str, Any]]:
         """Synchronous scanning routine (run in worker thread)."""
         devices: List[Dict[str, Any]] = []
 
         self._network_context = self._get_network_context()
-        discovered_hosts = self._discover_hosts(cidr)
+        discovered_hosts = self._discover_hosts(cidr, scan_speed)
 
         print(f"Starting service scan on {len(self._live_hosts)} hosts")
         port_results: dict[str, List[Dict[str, Any]]] = {}
         hosts_to_scan = [h for h in discovered_hosts.keys() if h in self._live_hosts]
         if hosts_to_scan:
-            with ThreadPoolExecutor(max_workers=16) as executor:
+            max_workers = 32 if scan_speed != "fast" else 48
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {executor.submit(self._scan_host_ports, host): host for host in hosts_to_scan}
                 for fut in as_completed(futures):
                     host = futures[fut]
@@ -94,6 +96,11 @@ class LocalNetworkScanner:
             device["netbios_name"] = netbios_name
             device["netbios_domain"] = netbios_domain
             device["fileserver"] = "Yes" if self._is_fileserver(host_ports, netbios_name) else "Unknown"
+            http_fp = self._http_fingerprint(host)
+            device["http_server"] = http_fp.get("http_server")
+            device["https_server"] = http_fp.get("https_server")
+            device["tls_subject"] = http_fp.get("tls_subject")
+            device["tls_issuer"] = http_fp.get("tls_issuer")
 
             device["device_type"] = self._infer_device_type(vendor, host_ports)
 
@@ -111,14 +118,57 @@ class LocalNetworkScanner:
 
         return devices
 
+    def _http_fingerprint(self, host: str) -> dict:
+        result = {"http_server": None, "https_server": None, "tls_subject": None, "tls_issuer": None}
+        # HTTP
+        try:
+            import http.client
+            conn = http.client.HTTPConnection(host, 80, timeout=1.5)
+            conn.request("GET", "/")
+            resp = conn.getresponse()
+            result["http_server"] = resp.getheader("Server")
+            conn.close()
+        except Exception:
+            pass
+        # HTTPS
+        try:
+            import http.client
+            context = ssl.create_default_context()
+            conn = http.client.HTTPSConnection(host, 443, timeout=1.5, context=context)
+            conn.request("GET", "/")
+            resp = conn.getresponse()
+            result["https_server"] = resp.getheader("Server")
+            conn.close()
+        except Exception:
+            pass
+        # TLS cert
+        try:
+            context = ssl.create_default_context()
+            with socket.create_connection((host, 443), timeout=1.5) as sock:
+                with context.wrap_socket(sock, server_hostname=host) as ssock:
+                    cert = ssock.getpeercert()
+                    subject = cert.get("subject", [])
+                    issuer = cert.get("issuer", [])
+                    result["tls_subject"] = self._flatten_x509(subject)
+                    result["tls_issuer"] = self._flatten_x509(issuer)
+        except Exception:
+            pass
+        return result
+
+    def _flatten_x509(self, parts):
+        try:
+            return ", ".join(["{}={}".format(k, v) for item in parts for k, v in item])
+        except Exception:
+            return None
+
     def get_network_context(self) -> dict:
         return self._network_context
 
-    async def scan_subnet_async(self, cidr: str) -> List[Dict[str, Any]]:
+    async def scan_subnet_async(self, cidr: str, scan_speed: str = "standard") -> List[Dict[str, Any]]:
         """Async wrapper to offload blocking scan to a worker thread."""
-        return await asyncio.to_thread(self.scan_subnet, cidr)
+        return await asyncio.to_thread(self.scan_subnet, cidr, scan_speed)
 
-    def _discover_hosts(self, cidr: str) -> dict[str, str]:
+    def _discover_hosts(self, cidr: str, scan_speed: str = "standard") -> dict[str, str]:
         """
         Parallel host discovery:
         1) Fast probe all IPs to populate ARP and detect live hosts
@@ -132,15 +182,18 @@ class LocalNetworkScanner:
 
         # Phase 1: Active probing (parallel)
         start = time.perf_counter()
-        live_hosts = self._probe_hosts_parallel(hosts)
+        live_hosts = self._probe_hosts_parallel(hosts, scan_speed)
         self._live_hosts = set(live_hosts)
         print(f"Probed {len(hosts)} IPs in {time.perf_counter() - start:.2f}s")
 
         # Phase 2: Aggressive Nmap discovery to populate ARP and catch silent hosts
-        self.nm.scan(
-            hosts=cidr,
-            arguments="-sn -PR -PE -PP -PS21,22,23,80,443,445,3389 -PA80,443 -n -T4"
-        )
+        if (scan_speed or "standard").lower() == "fast":
+            discovery_args = "-sn -PR -PE -PS80,443 -PA80,443 -n -T5 --max-retries 1 --host-timeout 15s"
+        elif (scan_speed or "standard").lower() == "aggressive":
+            discovery_args = "-sn -PR -PE -PP -PS21,22,23,80,443,445,3389 -PA80,443 -n -T4 --max-retries 2 --host-timeout 40s"
+        else:
+            discovery_args = "-sn -PR -PE -PP -PS21,22,80,443,445 -PA80,443 -n -T4 --max-retries 1 --host-timeout 20s"
+        self.nm.scan(hosts=cidr, arguments=discovery_args)
         for h in self.nm.all_hosts():
             try:
                 if self.nm[h].state() == "up":
@@ -180,7 +233,7 @@ class LocalNetworkScanner:
     def _scan_host_ports(self, host: str) -> List[Dict[str, Any]]:
         ports: List[Dict[str, Any]] = []
         scanner = nmap.PortScanner()
-        scanner.scan(hosts=host, arguments="--top-ports 100 -T4 -Pn --host-timeout 15s")
+        scanner.scan(hosts=host, arguments="--top-ports 100 -T5 -Pn --host-timeout 12s --max-retries 1")
         if host not in scanner.all_hosts():
             return ports
         host_data = scanner[host]
@@ -265,10 +318,11 @@ class LocalNetworkScanner:
                 pass
         return reachable, ttl_val
 
-    def _probe_hosts_parallel(self, hosts: List[str]) -> List[str]:
+    def _probe_hosts_parallel(self, hosts: List[str], scan_speed: str = "standard") -> List[str]:
         """Probe hosts concurrently with short timeouts."""
         live: List[str] = []
-        with ThreadPoolExecutor(max_workers=64) as executor:
+        max_workers = 128 if scan_speed == "fast" else 96 if scan_speed == "standard" else 64
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {executor.submit(self._probe_ip, ip): ip for ip in hosts}
             for fut in as_completed(futures):
                 ip = futures[fut]

@@ -5,9 +5,11 @@ from pydantic import BaseModel
 class ScanRequest(BaseModel):
     target: str
     scan_type: str = "quick"
+    scan_speed: str = "standard"
 
 class LocalScanRequest(BaseModel):
     target: Optional[str] = None  # CIDR, auto-detect if None
+    scan_speed: str = "standard"
 
 # Active scan models
 class ServiceInfo(BaseModel):
@@ -90,3 +92,7 @@ class LocalDevice(BaseModel):
     netbios_name: Optional[str] = None
     netbios_domain: Optional[str] = None
     fileserver: Optional[str] = None
+    http_server: Optional[str] = None
+    https_server: Optional[str] = None
+    tls_subject: Optional[str] = None
+    tls_issuer: Optional[str] = None
