@@ -8,11 +8,11 @@ import nmap
 
 
 class DeviceInspector:
-    def get_device_info(self, ip: str, cached: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    def get_device_info(self, ip: str, cached: Dict[str, Any] | None = None, network_context: Dict[str, Any] | None = None) -> Dict[str, Any]:
         info: Dict[str, Any] = {
             "ip": ip,
             "ipv4": ip,
-            "ipv6": self._resolve_ipv6(ip),
+            "ipv6": cached.get("ipv6") if cached else self._resolve_ipv6(ip),
             "public_ip": "Unknown",
             "isp": "Unknown",
             "city": "Unknown",
@@ -21,9 +21,14 @@ class DeviceInspector:
             "hostname": self._reverse_dns(ip) or "Unknown",
             "target_host": ip,
             "os_detected": "Unknown",
+            "os_guess": cached.get("os_guess") if cached else "Unknown",
+            "os_confidence": cached.get("os_confidence") if cached else "Unknown",
             "mac_address": "Unknown",
             "mac_vendor": "Unknown",
             "device_manufacturer": "Unknown",
+            "manufacturer_address": "Unknown",
+            "vendor_source": "IEEE OUI",
+            "vendor_confidence": 0.0,
             "netbios_name": "Unknown",
             "netbios_domain": "Unknown",
             "fileserver": "Unknown",
@@ -32,13 +37,25 @@ class DeviceInspector:
         if cached:
             info["hostname"] = cached.get("hostname") or info["hostname"]
             info["mac_address"] = cached.get("mac") or info["mac_address"]
-            info["mac_vendor"] = cached.get("vendor") or info["mac_vendor"]
-            info["device_manufacturer"] = cached.get("vendor") or info["device_manufacturer"]
+            info["mac_vendor"] = cached.get("mac_vendor") or info["mac_vendor"]
+            info["device_manufacturer"] = cached.get("manufacturer") or info["device_manufacturer"]
+            info["manufacturer_address"] = cached.get("manufacturer_address") or info["manufacturer_address"]
+            info["vendor_source"] = cached.get("vendor_source") or info["vendor_source"]
+            info["vendor_confidence"] = cached.get("vendor_confidence", info["vendor_confidence"])
+            info["netbios_name"] = cached.get("netbios_name") or info["netbios_name"]
+            info["netbios_domain"] = cached.get("netbios_domain") or info["netbios_domain"]
+            info["fileserver"] = cached.get("fileserver") or info["fileserver"]
             info["device_type"] = cached.get("device_type") or "Unknown"
             info["open_ports"] = [p.get("port") for p in cached.get("ports", []) if isinstance(p, dict)]
         else:
             info["device_type"] = "Unknown"
             info["open_ports"] = []
+        if network_context:
+            info["public_ip"] = network_context.get("public_ip", info["public_ip"])
+            info["isp"] = network_context.get("isp", info["isp"])
+            info["city"] = network_context.get("city", info["city"])
+            info["region"] = network_context.get("region", info["region"])
+            info["country"] = network_context.get("country", info["country"])
         return info
 
     def ping_test(self, ip: str) -> Dict[str, Any]:

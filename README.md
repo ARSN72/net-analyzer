@@ -61,11 +61,11 @@ requirements.txt
    ```
    SHODAN_API_KEY=your_key_here
    ```
-5. Run the server:
+5. Run the server (port 5252):
    ```bash
-   uvicorn app.main:app --reload
+   uvicorn app.main:app --reload --port 5252
    ```
-6. Open the UI at `http://localhost:8000/`.
+6. Open the UI at `http://localhost:5252/`.
 
 ## Usage
 - **External Recon (UI):** Enter target IP/hostname, choose quick/full, click `run`. Results render as a structured block (risk chip, ports table, intel, findings). Clear logs or download the PDF report via toolbar.

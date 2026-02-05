@@ -231,6 +231,12 @@
       border-radius: 12px;
       overflow: hidden;
       box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+      max-height: 90vh;
+      overflow-y: auto;
+      cursor: default;
+    }
+    .modal {
+      cursor: pointer;
     }
   </style>
 </head>
@@ -288,6 +294,7 @@
           <div class="muted">AUTHORIZED NETWORKS ONLY</div>
           <label>action</label>
           <button id="scanSubnet">SCAN LOCAL NETWORK</button>
+          <button id="refreshSubnet" class="btn-ghost">REFRESH LIST</button>
           <button id="downloadInternal" class="btn-ghost">DOWNLOAD REPORT</button>
         </div>
         <div class="status" id="detectStatus">waiting for scan...</div>
@@ -490,6 +497,7 @@
     // Internal LAN scan logic
     const scanSubnetBtn = document.getElementById('scanSubnet');
     const downloadInternalBtn = document.getElementById('downloadInternal');
+    const refreshSubnetBtn = document.getElementById('refreshSubnet');
     const assetBody = document.getElementById('assetBody');
     const detectStatus = document.getElementById('detectStatus');
     const deviceModal = document.getElementById('deviceModal');
@@ -502,6 +510,7 @@
     let currentDeviceIp = null;
 
     scanSubnetBtn.addEventListener('click', runInternalScan);
+    refreshSubnetBtn.addEventListener('click', runInternalScan);
     downloadInternalBtn.addEventListener('click', () => {
       window.location.href = '/internal/report';
     });
@@ -542,7 +551,8 @@
         const risk = dev.risk || {};
         const label = (risk.label || 'LOW').toUpperCase();
         const isHigh = label === 'HIGH' || label === 'CRITICAL';
-        const vendorBadge = isIoT(dev.vendor) ? `<span class="badge badge-iot">${dev.vendor || 'Unknown'}</span>` : (dev.vendor || 'Unknown');
+        const vendorName = dev.mac_vendor || dev.vendor || 'Unknown';
+        const vendorBadge = isIoT(vendorName) ? `<span class="badge badge-iot">${vendorName}</span>` : vendorName;
         const ports = Array.isArray(dev.ports) ? dev.ports.map(p => `${p.port}/${p.protocol}`).join(', ') : '';
         const flags = [];
         if (dev.rogue) flags.push('<span class="badge badge-risk">Rogue</span>');
@@ -600,7 +610,6 @@
 
     function renderDeviceInfo(d) {
       const rows = [
-        ["IP Address", d.ip],
         ["IPv4", d.ipv4 || 'Unknown'],
         ["IPv6", d.ipv6 || 'Unknown'],
         ["Public IP", d.public_ip || 'Unknown'],
@@ -609,11 +618,17 @@
         ["Region", d.region || 'Unknown'],
         ["Country", d.country || 'Unknown'],
         ["Hostname", d.hostname || 'Unknown'],
+        ["Hostname Source", d.hostname_source || 'Unknown'],
         ["Target Host", d.target_host || 'Unknown'],
         ["OS Detected", d.os_detected || 'Unknown'],
+        ["OS Guess", d.os_guess || 'Unknown'],
+        ["OS Confidence", d.os_confidence || 'Unknown'],
         ["MAC Address", d.mac_address || 'Unknown'],
         ["MAC Vendor", d.mac_vendor || 'Unknown'],
         ["Device Manufacturer", d.device_manufacturer || 'Unknown'],
+        ["Manufacturer Address", d.manufacturer_address || 'Unknown'],
+        ["Vendor Source", d.vendor_source || 'Unknown'],
+        ["Vendor Confidence", d.vendor_confidence != null ? d.vendor_confidence : 'Unknown'],
         ["NetBIOS Name", d.netbios_name || 'Unknown'],
         ["NetBIOS Domain", d.netbios_domain || 'Unknown'],
         ["File Server", d.fileserver || 'Unknown'],
@@ -666,6 +681,13 @@
     closeModal.addEventListener('click', () => {
       deviceModal.classList.add('hidden');
       currentDeviceIp = null;
+    });
+
+    deviceModal.addEventListener('click', (e) => {
+      if (e.target === deviceModal) {
+        deviceModal.classList.add('hidden');
+        currentDeviceIp = null;
+      }
     });
   </script>
 </body>
